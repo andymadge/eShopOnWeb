@@ -1,0 +1,261 @@
+```mermaid
+C4Component
+    title Component Diagram - Public API
+
+    Container_Boundary(apiBoundary, "Public API - ASP.NET Core Minimal Endpoints") {
+        Component(catalogEndpoints, "Catalog Item Endpoints", "Minimal Endpoints", "CRUD operations (Create, Read, Update, Delete, List with pagination)")
+        Component(brandEndpoints, "Brand Endpoints", "Minimal Endpoints", "List catalog brands")
+        Component(typeEndpoints, "Type Endpoints", "Minimal Endpoints", "List catalog types")
+        Component(authEndpoints, "Auth Endpoints", "Minimal Endpoints", "Token generation and refresh")
+
+        Component(exceptionMiddleware, "Exception Middleware", "ASP.NET Middleware", "Global exception handling with standardized error responses")
+        Component(autoMapper, "AutoMapper", "Mapping Library", "Entity-to-DTO transformations (MappingProfile)")
+        Component(swaggerConfig, "Swagger Configuration", "Swashbuckle", "OpenAPI documentation with JWT security scheme")
+        Component(imageValidator, "Image Validator", "C# Class", "Validates uploaded product images")
+    }
+
+    Container_Boundary(coreBoundary, "ApplicationCore") {
+        Component(coreInterfaces, "Core Interfaces", "C# Interfaces", "IRepository, IUriComposer, ITokenClaimsService")
+        Component(specifications, "Specifications", "Ardalis.Specification", "CatalogFilterSpec, CatalogItemsSpec")
+        Component(entities, "Domain Entities", "C# Entities", "CatalogItem, CatalogBrand, CatalogType")
+    }
+
+    Container_Boundary(infraBoundary, "Infrastructure") {
+        Component(repository, "EF Repository", "Generic Repository", "EfRepository<T> implementation")
+        Component(catalogContext, "Catalog DbContext", "EF Core", "Database access for catalog data")
+        Component(tokenService, "Token Claims Service", "C# Service", "JWT token generation with claims")
+        Component(uriComposer, "URI Composer", "C# Service", "Constructs image URIs")
+    }
+
+    ContainerDb(catalogDb, "Catalog DB", "SQL Server")
+    ContainerDb(identityDb, "Identity DB", "SQL Server")
+
+    Rel(catalogEndpoints, coreInterfaces, "Uses IRepository<CatalogItem>")
+    Rel(brandEndpoints, coreInterfaces, "Uses IRepository<CatalogBrand>")
+    Rel(typeEndpoints, coreInterfaces, "Uses IRepository<CatalogType>")
+    Rel(authEndpoints, coreInterfaces, "Uses ITokenClaimsService")
+
+    Rel(catalogEndpoints, autoMapper, "Maps entities to DTOs")
+    Rel(catalogEndpoints, uriComposer, "Composes image URIs")
+    Rel(catalogEndpoints, imageValidator, "Validates images")
+    Rel(catalogEndpoints, specifications, "Creates query specifications")
+
+    Rel(authEndpoints, tokenService, "Generates JWT tokens")
+
+    Rel(coreInterfaces, repository, "Implemented by", "DI")
+    Rel(repository, catalogContext, "Uses DbContext")
+    Rel(repository, specifications, "Applies to queries")
+
+    Rel(catalogContext, catalogDb, "Reads/Writes", "EF Core/SQL")
+    Rel(tokenService, identityDb, "Validates credentials", "EF Core/SQL")
+
+    Rel(exceptionMiddleware, catalogEndpoints, "Wraps", "Exception handling")
+    Rel(swaggerConfig, catalogEndpoints, "Documents", "OpenAPI/Swagger UI")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+```
+
+## Public API Components
+
+### Endpoint Components
+
+#### **Catalog Item Endpoints**
+**Location**: `/src/PublicApi/CatalogItemEndpoints/`
+
+**Endpoints**:
+- **CatalogItemListPagedEndpoint** - `GET /api/catalog-items`
+  - Pagination support (pageSize, pageIndex)
+  - Filtering (brandId, typeId)
+  - Returns paginated response with page count
+
+- **CatalogItemGetByIdEndpoint** - `GET /api/catalog-items/{id}`
+  - Single item retrieval
+  - Image URI composition
+
+- **CreateCatalogItemEndpoint** - `POST /api/catalog-items`
+  - Requires authentication (JWT)
+  - Image upload support
+  - Validation via ImageValidators
+
+- **UpdateCatalogItemEndpoint** - `PUT /api/catalog-items`
+  - Requires authentication
+  - Partial updates supported
+
+- **DeleteCatalogItemEndpoint** - `DELETE /api/catalog-items/{id}`
+  - Requires authentication
+  - Soft or hard delete
+
+**Pattern**: Minimal Endpoints (MinimalApi.Endpoint)
+- Each endpoint is a separate class
+- Implements `IEndpoint<TResponse, TRequest, TDependency>`
+- Registered via `AddEndpoints()` and `MapEndpoints()`
+
+#### **Brand Endpoints**
+**Location**: `/src/PublicApi/CatalogBrandEndpoints/`
+
+- **ListBrandsEndpoint** - `GET /api/catalogbrands`
+  - Returns all brands
+  - No pagination (typically small dataset)
+
+#### **Type Endpoints**
+**Location**: `/src/PublicApi/CatalogTypeEndpoints/`
+
+- **ListTypesEndpoint** - `GET /api/catalogtypes`
+  - Returns all categories/types
+  - No pagination
+
+#### **Auth Endpoints**
+**Location**: `/src/PublicApi/AuthEndpoints/`
+
+- **AuthenticateEndpoint** - `POST /api/auth`
+  - Accepts username/password
+  - Returns JWT token with expiration
+  - Token contains user claims (userId, username, roles)
+
+- **RefreshTokenEndpoint** - `POST /api/auth/refresh`
+  - Extends token expiration
+  - Validates existing token
+
+**JWT Configuration**:
+- Secret: `AuthorizationConstants.JWT_SECRET_KEY`
+- Algorithm: HMAC-SHA256
+- No issuer/audience validation (configured for simplicity)
+
+### Supporting Components
+
+#### **Exception Middleware**
+**Location**: `/src/PublicApi/Middleware/ExceptionMiddleware.cs`
+
+**Responsibilities**:
+- Catch unhandled exceptions
+- Log exception details
+- Return standardized error response
+- HTTP status code mapping (500 for unhandled, 400 for validation)
+
+**Error Response Format**:
+```json
+{
+  "message": "Error description",
+  "details": "Stack trace (dev only)"
+}
+```
+
+#### **AutoMapper Configuration**
+**Location**: `/src/PublicApi/MappingProfile.cs`
+
+**Mappings**:
+- `CatalogItem` → `CatalogItemDto`
+- `CatalogBrand` → `CatalogBrandDto`
+- `CatalogType` → `CatalogTypeDto`
+
+**Purpose**: Separate persistence models from API contracts
+
+#### **Swagger Configuration**
+**Location**: `/src/PublicApi/Program.cs` lines 89-123
+
+**Features**:
+- OpenAPI 3.0 spec generation
+- Swagger UI at `/swagger`
+- JWT Bearer authentication scheme
+- XML comments for endpoint documentation
+- Custom schema filters via `CustomSchemaFilters`
+
+**Security Definition**:
+```json
+{
+  "Bearer": {
+    "type": "apiKey",
+    "name": "Authorization",
+    "in": "header",
+    "scheme": "Bearer"
+  }
+}
+```
+
+#### **Image Validators**
+**Location**: `/src/PublicApi/ImageValidators.cs`
+
+**Validations**:
+- File size limits
+- Allowed file types (JPEG, PNG, GIF)
+- File extension validation
+- MIME type checking
+
+### Data Flow Example: List Paginated Catalog Items
+
+1. **Client** sends `GET /api/catalog-items?pageSize=10&pageIndex=0&brandId=1`
+2. **Minimal Endpoint** receives request in `CatalogItemListPagedEndpoint.HandleAsync()`
+3. **Endpoint** creates `CatalogFilterSpecification` with brand filter
+4. **Endpoint** calls `IRepository<CatalogItem>.CountAsync(specification)` for total count
+5. **Endpoint** creates `CatalogFilterPaginatedSpecification` with skip/take
+6. **Endpoint** calls `IRepository<CatalogItem>.ListAsync(specification)`
+7. **EF Repository** translates specification to EF query
+8. **DbContext** executes SQL query with pagination
+9. **AutoMapper** maps entities to `CatalogItemDto`
+10. **UriComposer** generates full image URIs
+11. **Endpoint** calculates page count
+12. **Response** returned as JSON with items and metadata
+
+### CORS Configuration
+
+**Location**: `/src/PublicApi/Program.cs` lines 72-82
+
+**Policy**: Allows requests from Web Application
+- Origin: Configured from `baseUrls.webBase` in appsettings
+- Methods: All HTTP methods
+- Headers: All headers
+
+**Purpose**: Enable Blazor Admin to call API from browser
+
+### Authentication Flow
+
+1. **Client** sends POST to `/api/auth` with credentials
+2. **AuthEndpoints** validates against Identity database
+3. **IdentityTokenClaimService** creates JWT
+   - Claims: userId, username, email, roles
+   - Expiration: Configurable (default 60 minutes)
+4. **Client** receives token
+5. **Client** includes token in subsequent requests: `Authorization: Bearer {token}`
+6. **JWT Middleware** validates token on protected endpoints
+7. **Request** proceeds if valid, returns 401 if invalid
+
+### Error Handling
+
+**Global Exception Middleware**:
+```
+Request → Exception Middleware → Endpoints
+                ↓ (if exception)
+           Log Error
+                ↓
+        Standardized JSON Response
+```
+
+**Custom Exceptions**:
+- Domain exceptions from ApplicationCore
+- Validation exceptions from guard clauses
+- EF exceptions from database operations
+
+### API Versioning Strategy
+
+**Current**: No versioning (v1 implicit)
+**Future**: Could add version prefix `/api/v1/` or header-based versioning
+
+### Rate Limiting
+
+**Current**: Not implemented
+**Recommendation**: Add rate limiting middleware for production (e.g., AspNetCoreRateLimit)
+
+### Endpoint Registration
+
+**Pattern**: Convention-based registration
+
+```csharp
+builder.Services.AddEndpoints();  // Scans assembly
+app.MapEndpoints();               // Registers routes
+```
+
+**Benefits**:
+- No manual routing configuration
+- Each endpoint self-describes its route
+- Easy to add new endpoints
+- Testable in isolation

@@ -1,0 +1,212 @@
+```mermaid
+C4Container
+    title Container Diagram for eShopOnWeb System
+
+    Person(customer, "Customer", "Browses and purchases products")
+    Person(admin, "Administrator", "Manages catalog")
+    Person(apiClient, "API Client", "External integration")
+
+    System_Boundary(eShopBoundary, "eShopOnWeb System") {
+        Container(webApp, "Web Application", "ASP.NET Core 8 MVC + Razor Pages + Blazor Server", "Customer-facing e-commerce site with product catalog, basket, and order management")
+        Container(publicApi, "Public API", "ASP.NET Core 8 Minimal Endpoints", "RESTful API for catalog management and authentication with Swagger/OpenAPI documentation")
+        Container(blazorAdmin, "Blazor Admin SPA", "Blazor WebAssembly 8", "Single-page admin dashboard for catalog CRUD operations (served as static files by Web App)")
+
+        ContainerDb(catalogDb, "Catalog Database", "SQL Server", "Stores catalog items, brands, types, baskets, and orders")
+        ContainerDb(identityDb, "Identity Database", "SQL Server", "Stores users, roles, and authentication data")
+    }
+
+    System_Ext(azureKeyVault, "Azure Key Vault", "Production secrets storage")
+    System_Ext(emailService, "Email Service", "Email delivery")
+
+    Rel(customer, webApp, "Browses catalog, manages basket, places orders", "HTTPS/443")
+    Rel(admin, webApp, "Accesses admin dashboard", "HTTPS/443")
+    Rel(admin, blazorAdmin, "Manages catalog via SPA", "HTTPS")
+    Rel(apiClient, publicApi, "Consumes REST API", "HTTPS:5099/REST/JWT")
+
+    Rel(webApp, blazorAdmin, "Serves static files", "HTTPS")
+    Rel(blazorAdmin, publicApi, "API calls for CRUD operations", "HTTPS/REST/JWT")
+    Rel(webApp, catalogDb, "Reads and writes", "EF Core/SQL")
+    Rel(webApp, identityDb, "Authenticates users", "EF Core/SQL")
+    Rel(publicApi, catalogDb, "Reads and writes catalog data", "EF Core/SQL")
+    Rel(publicApi, identityDb, "Validates credentials, issues JWT", "EF Core/SQL")
+
+    Rel(webApp, azureKeyVault, "Retrieves connection strings (prod)", "Azure SDK/HTTPS")
+    Rel(publicApi, azureKeyVault, "Retrieves connection strings (prod)", "Azure SDK/HTTPS")
+    Rel(webApp, emailService, "Sends order emails", "SMTP")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+```
+
+## Container Details
+
+### 1. Web Application
+**Technology**: ASP.NET Core 8 (MVC + Razor Pages + Blazor Server)
+**Port**: 44315 (HTTPS), 5001 (HTTP redirect)
+**Entry Point**: `/src/Web/Program.cs`
+
+**Responsibilities**:
+- Serve customer-facing e-commerce website
+- Display product catalog with filtering and pagination
+- Manage shopping basket
+- Process checkout and create orders
+- User authentication (cookie-based)
+- Host Blazor Admin as static files
+- Provide health check endpoints
+
+**Key Technologies**:
+- ASP.NET Core Identity for authentication
+- Cookie authentication (secure, HTTP-only, SameSite=Lax)
+- MVC controllers and Razor Pages
+- Blazor Server for interactive components
+- MemoryCache for catalog caching
+- MediatR for CQRS queries
+
+**Authentication**: Cookie-based with ASP.NET Core Identity
+
+### 2. Public API
+**Technology**: ASP.NET Core 8 Minimal Endpoints
+**Port**: 5099 (HTTPS)
+**Entry Point**: `/src/PublicApi/Program.cs`
+
+**Responsibilities**:
+- Expose RESTful API for catalog management
+- Provide JWT token authentication
+- CRUD operations on catalog items, brands, and types
+- Swagger/OpenAPI documentation
+- CORS support for web application
+
+**Key Technologies**:
+- MinimalApi.Endpoint pattern
+- JWT Bearer authentication
+- Swagger/Swashbuckle for API documentation
+- AutoMapper for DTO mapping
+- Custom exception middleware
+
+**Authentication**: JWT Bearer tokens
+
+**Endpoints**:
+- `POST /api/auth` - Token generation
+- `GET /api/catalog-items` - List items (paginated)
+- `POST /api/catalog-items` - Create item
+- `PUT /api/catalog-items` - Update item
+- `DELETE /api/catalog-items/{id}` - Delete item
+- `GET /api/catalogbrands` - List brands
+- `GET /api/catalogtypes` - List types
+
+### 3. Blazor Admin SPA
+**Technology**: Blazor WebAssembly 8
+**Hosting**: Served as static files by Web Application
+**Location**: `/src/BlazorAdmin`
+
+**Responsibilities**:
+- Provide admin dashboard for catalog management
+- CRUD operations via Public API
+- Image upload for product pictures
+- Client-side routing and state management
+
+**Key Technologies**:
+- Blazor WebAssembly (runs in browser)
+- Blazored.LocalStorage for client-side storage
+- HttpClient for API communication
+- Shared components in BlazorShared project
+
+**Authentication**: Inherits from Web Application session
+
+### 4. Catalog Database
+**Technology**: SQL Server (Azure SQL in production, LocalDB/SQL Edge in dev)
+**Schema**: Managed by Entity Framework Core migrations
+
+**Tables**:
+- `Catalog` - Product catalog items
+- `CatalogBrands` - Product brands
+- `CatalogTypes` - Product categories
+- `Baskets` - Shopping baskets
+- `BasketItems` - Items in baskets
+- `Orders` - Customer orders
+- `OrderItems` - Line items in orders
+
+**Context**: `CatalogContext` in Infrastructure project
+
+**Access Pattern**: Repository pattern with Specification
+
+### 5. Identity Database
+**Technology**: SQL Server (separate database for security isolation)
+**Schema**: ASP.NET Core Identity schema
+
+**Tables**:
+- `AspNetUsers` - User accounts
+- `AspNetRoles` - Role definitions
+- `AspNetUserRoles` - User-role assignments
+- `AspNetUserClaims` - User claims
+- Plus additional Identity tables
+
+**Context**: `AppIdentityDbContext` in Infrastructure project
+
+**Access Pattern**: ASP.NET Core Identity APIs
+
+## Container Communication
+
+### Web App ↔ Databases
+- Connection via Entity Framework Core 8
+- Two separate DbContexts (Catalog + Identity)
+- Repository pattern for catalog data
+- Identity APIs for user management
+- Connection string from appsettings or Azure Key Vault
+
+### Public API ↔ Databases
+- Same EF Core contexts as Web App (shared Infrastructure project)
+- JWT token generation from Identity database
+- Catalog CRUD via Repository pattern
+- Minimal endpoints pattern for routing
+
+### Blazor Admin ↔ Public API
+- HttpClient with base URL configuration
+- JWT authentication via tokens
+- REST/JSON communication
+- CORS enabled for cross-origin requests
+
+### Docker Deployment
+All containers orchestrated via `docker-compose.yml`:
+```yaml
+services:
+  eshopwebmvc:       # Web Application
+  eshoppublicapi:    # Public API
+  sqlserver:         # Azure SQL Edge
+```
+
+**Networking**:
+- Shared Docker network
+- SQL Server on port 1433
+- Web App mapped to host ports
+- API mapped to host ports
+
+### Azure Deployment
+- Web App → Azure App Service
+- Public API → Azure App Service (separate)
+- Databases → Azure SQL Database
+- Secrets → Azure Key Vault
+- Identity → Managed Identity for Key Vault access
+
+## Data Flow Examples
+
+### Customer Places Order
+1. Customer adds items to basket (Web App)
+2. Web App writes to BasketItems (Catalog DB)
+3. Customer proceeds to checkout
+4. Web App creates Order from Basket (Catalog DB)
+5. Web App sends confirmation email (Email Service)
+
+### Admin Updates Catalog
+1. Admin opens Blazor Admin (served by Web App)
+2. Blazor Admin fetches items (Public API)
+3. Admin edits item details
+4. Blazor Admin sends PUT request (Public API)
+5. Public API updates Catalog table (Catalog DB)
+6. Changes visible in Web App catalog
+
+### API Client Integration
+1. Client requests JWT token (Public API /api/auth)
+2. Public API validates credentials (Identity DB)
+3. Public API returns JWT token
+4. Client requests catalog items with Bearer token (Public API)
+5. Public API returns paginated catalog data

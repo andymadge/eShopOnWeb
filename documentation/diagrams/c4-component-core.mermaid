@@ -1,0 +1,419 @@
+```mermaid
+C4Component
+    title Component Diagram - ApplicationCore (Domain Layer)
+
+    Container_Boundary(coreBoundary, "ApplicationCore - Domain Layer") {
+
+        Component_Boundary(entitiesBoundary, "Domain Entities") {
+            Component(catalogItem, "CatalogItem", "Aggregate Root", "Product with name, description, price, picture, brand, and type")
+            Component(catalogBrand, "CatalogBrand", "Aggregate Root", "Product brand/manufacturer")
+            Component(catalogType, "CatalogType", "Aggregate Root", "Product category/type")
+
+            Component(basket, "Basket", "Aggregate Root", "Shopping basket with items and buyer ID")
+            Component(basketItem, "BasketItem", "Entity", "Item in basket with quantity and price")
+
+            Component(order, "Order", "Aggregate Root", "Customer order with items and shipping address")
+            Component(orderItem, "OrderItem", "Value Object", "Order line item with product details and quantity")
+            Component(address, "Address", "Value Object", "Shipping address details")
+
+            Component(buyer, "Buyer", "Aggregate Root", "Customer with payment methods")
+        }
+
+        Component_Boundary(servicesBoundary, "Domain Services") {
+            Component(basketService, "BasketService", "Service", "Basket management: add items, transfer anonymous to user basket")
+            Component(orderService, "OrderService", "Service", "Order creation: convert basket to order")
+            Component(basketQueryService, "BasketQueryService", "Service", "Basket queries and retrieval")
+        }
+
+        Component_Boundary(specificationsBoundary, "Specifications (Query Patterns)") {
+            Component(basketSpec, "BasketWithItemsSpecification", "Specification", "Loads basket with all items eagerly")
+            Component(catalogFilterSpec, "CatalogFilterSpecification", "Specification", "Filters catalog by brand/type")
+            Component(catalogPaginatedSpec, "CatalogFilterPaginatedSpecification", "Specification", "Paginated catalog with filtering")
+            Component(orderSpec, "CustomerOrdersSpecification", "Specification", "Loads customer orders")
+            Component(catalogItemsSpec, "CatalogItemsSpecification", "Specification", "Loads specific catalog items by IDs")
+        }
+
+        Component_Boundary(interfacesBoundary, "Core Interfaces (Abstractions)") {
+            Component(iRepository, "IRepository<T>", "Interface", "Write repository with Add, Update, Delete")
+            Component(iReadRepository, "IReadRepository<T>", "Interface", "Read repository with Get, List, Count")
+            Component(iBasketService, "IBasketService", "Interface", "Basket service abstraction")
+            Component(iOrderService, "IOrderService", "Interface", "Order service abstraction")
+            Component(iUriComposer, "IUriComposer", "Interface", "Image URI composition")
+            Component(iEmailSender, "IEmailSender", "Interface", "Email sending abstraction")
+            Component(iAppLogger, "IAppLogger<T>", "Interface", "Logging abstraction")
+        }
+    }
+
+    Rel(basketService, basket, "Manipulates")
+    Rel(basketService, basketItem, "Adds/removes")
+    Rel(basketService, iRepository, "Uses")
+    Rel(basketService, basketSpec, "Creates")
+
+    Rel(orderService, order, "Creates")
+    Rel(orderService, orderItem, "Creates")
+    Rel(orderService, basket, "Reads")
+    Rel(orderService, catalogItem, "Reads")
+    Rel(orderService, iRepository, "Uses")
+    Rel(orderService, basketSpec, "Uses")
+    Rel(orderService, catalogItemsSpec, "Uses")
+    Rel(orderService, iUriComposer, "Uses")
+
+    Rel(basketQueryService, basket, "Queries")
+    Rel(basketQueryService, iReadRepository, "Uses")
+    Rel(basketQueryService, basketSpec, "Creates")
+
+    Rel(basketSpec, basket, "Queries with includes")
+    Rel(catalogFilterSpec, catalogItem, "Filters")
+    Rel(catalogPaginatedSpec, catalogItem, "Filters & paginates")
+    Rel(orderSpec, order, "Queries")
+    Rel(catalogItemsSpec, catalogItem, "Queries by IDs")
+
+    UpdateLayoutConfig($c4ShapeInRow="4", $c4BoundaryInRow="1")
+```
+
+## ApplicationCore Components
+
+The ApplicationCore represents the **heart of the application** - pure domain logic with no infrastructure dependencies. This follows Clean Architecture principles where the core is independent of UI, database, or external concerns.
+
+### Domain Entities (Aggregate Roots & Value Objects)
+
+#### **Catalog Subdomain**
+
+**CatalogItem** (Aggregate Root)
+**Location**: `/src/ApplicationCore/Entities/CatalogItem.cs`
+
+**Properties**:
+- `Name` (string) - Product name
+- `Description` (string) - Product description
+- `Price` (decimal) - Unit price
+- `PictureUri` (string) - Image path
+- `CatalogTypeId` (int) - Foreign key to type
+- `CatalogBrandId` (int) - Foreign key to brand
+
+**Methods**:
+- `UpdateDetails(CatalogItemDetails)` - Update name, description, price
+- `UpdateBrand(int)` - Change brand association
+- `UpdateType(int)` - Change category
+- `UpdatePictureUri(string)` - Set product image
+
+**Invariants**:
+- Name and description cannot be null/empty
+- Price must be positive
+- Brand and type IDs must be non-zero
+
+**CatalogBrand** (Aggregate Root)
+**Location**: `/src/ApplicationCore/Entities/CatalogBrand.cs`
+
+Simple entity with `Brand` name property. Represents manufacturers like "Adidas", "Nike", etc.
+
+**CatalogType** (Aggregate Root)
+**Location**: `/src/ApplicationCore/Entities/CatalogType.cs`
+
+Simple entity with `Type` name property. Represents categories like "Shoes", "T-Shirts", etc.
+
+#### **Basket Subdomain**
+
+**Basket** (Aggregate Root)
+**Location**: `/src/ApplicationCore/Entities/BasketAggregate/Basket.cs`
+
+**Properties**:
+- `BuyerId` (string) - Owner (anonymous GUID or user ID)
+- `Items` (IReadOnlyCollection<BasketItem>) - Basket items
+- `TotalItems` (int) - Computed total quantity
+
+**Methods**:
+- `AddItem(catalogItemId, unitPrice, quantity)` - Add or increment item
+- `RemoveEmptyItems()` - Clean up zero-quantity items
+- `SetNewBuyerId(buyerId)` - Transfer basket to authenticated user
+
+**Encapsulation**:
+- Private `_items` list
+- Public read-only collection
+- Items can only be modified through aggregate methods
+
+**BasketItem** (Entity, not Aggregate Root)
+**Location**: `/src/ApplicationCore/Entities/BasketAggregate/BasketItem.cs`
+
+**Properties**:
+- `CatalogItemId` (int) - Product reference
+- `Quantity` (int) - Number of units
+- `UnitPrice` (decimal) - Price at time of adding
+
+**Methods**:
+- `AddQuantity(int)` - Increase quantity
+- `SetQuantity(int)` - Set absolute quantity
+
+#### **Order Subdomain**
+
+**Order** (Aggregate Root)
+**Location**: `/src/ApplicationCore/Entities/OrderAggregate/Order.cs`
+
+**Properties**:
+- `BuyerId` (string) - Customer identifier
+- `OrderDate` (DateTimeOffset) - When order was placed
+- `ShipToAddress` (Address) - Delivery address
+- `OrderItems` (IReadOnlyCollection<OrderItem>) - Line items
+
+**Methods**:
+- `Total()` - Calculate order total
+
+**Encapsulation**:
+- Private `_orderItems` list
+- Read-only public collection
+- Items set only during construction (immutable after creation)
+
+**OrderItem** (Value Object)
+**Location**: `/src/ApplicationCore/Entities/OrderAggregate/OrderItem.cs`
+
+**Properties**:
+- `ItemOrdered` (CatalogItemOrdered) - Product snapshot
+- `UnitPrice` (decimal) - Price at time of order
+- `Units` (int) - Quantity ordered
+
+**CatalogItemOrdered** (Value Object):
+- `CatalogItemId`, `ProductName`, `PictureUri`
+- Snapshot pattern: preserves product details at order time
+
+**Address** (Value Object)
+**Location**: `/src/ApplicationCore/Entities/OrderAggregate/Address.cs`
+
+**Properties**:
+- `Street`, `City`, `State`, `Country`, `ZipCode`
+
+Value object (immutable, no identity)
+
+#### **Buyer Subdomain**
+
+**Buyer** (Aggregate Root)
+**Location**: `/src/ApplicationCore/Entities/BuyerAggregate/Buyer.cs`
+
+**Properties**:
+- `IdentityGuid` (string) - User identifier
+- `PaymentMethods` (collection) - Saved payment methods
+
+Not heavily used in current implementation (prepared for future payment method management)
+
+### Domain Services
+
+#### **BasketService**
+**Location**: `/src/ApplicationCore/Services/BasketService.cs`
+**Interface**: `/src/ApplicationCore/Interfaces/IBasketService.cs`
+
+**Responsibilities**:
+- Add items to basket
+- Set basket item quantities
+- Delete baskets
+- Transfer anonymous basket to authenticated user
+
+**Key Method**: `TransferBasketAsync(anonymousId, userId)`
+- Finds anonymous basket
+- Finds or creates user basket
+- Merges items
+- Deletes anonymous basket
+- Used during login
+
+**Dependencies**:
+- `IRepository<Basket>`
+
+#### **OrderService**
+**Location**: `/src/ApplicationCore/Services/OrderService.cs`
+**Interface**: `/src/ApplicationCore/Interfaces/IOrderService.cs`
+
+**Responsibilities**:
+- Create orders from baskets
+
+**Key Method**: `CreateOrderAsync(basketId, shippingAddress)`
+1. Load basket with items (using specification)
+2. Validate basket not empty (guard clause)
+3. Load catalog items for current prices
+4. Create order items with product snapshots
+5. Create order aggregate
+6. Persist order
+
+**Dependencies**:
+- `IRepository<Order>`
+- `IRepository<Basket>`
+- `IRepository<CatalogItem>`
+- `IUriComposer`
+
+**Pattern**: Domain service coordinates multiple aggregates
+
+#### **BasketQueryService**
+**Location**: `/src/ApplicationCore/Services/BasketQueryService.cs`
+**Interface**: `/src/ApplicationCore/Interfaces/IBasketQueryService.cs`
+
+**Responsibilities**:
+- Query basket data
+- Read-only operations
+
+**Pattern**: Separates read operations from writes (CQRS principle)
+
+### Specifications (Query Patterns)
+
+Specifications use **Ardalis.Specification** library to encapsulate query logic.
+
+#### **BasketWithItemsSpecification**
+**Location**: `/src/ApplicationCore/Specifications/BasketWithItemsSpecification.cs`
+
+**Purpose**: Load basket with all items eagerly (avoid N+1 queries)
+
+**Query Logic**:
+```csharp
+Query.Where(b => b.Id == basketId)
+     .Include(b => b.Items)
+```
+
+**Usage**: When displaying basket or creating order
+
+#### **CatalogFilterSpecification**
+**Location**: `/src/ApplicationCore/Specifications/CatalogFilterSpecification.cs`
+
+**Purpose**: Filter catalog by brand and/or type
+
+**Query Logic**:
+- If brandId provided: `Where(i => i.CatalogBrandId == brandId)`
+- If typeId provided: `Where(i => i.CatalogTypeId == typeId)`
+- Includes brand and type navigation properties
+
+**Usage**: Catalog filtering, count queries
+
+#### **CatalogFilterPaginatedSpecification**
+**Location**: `/src/ApplicationCore/Specifications/CatalogFilterPaginatedSpecification.cs`
+
+**Purpose**: Paginated catalog with filters
+
+**Query Logic**:
+- Inherits filter logic from CatalogFilterSpecification
+- Adds `Skip(skip).Take(take)`
+- Orders by name
+
+**Usage**: Catalog listing with pagination
+
+#### **CustomerOrdersSpecification**
+**Location**: `/src/ApplicationCore/Specifications/CustomerOrdersSpecification.cs`
+
+**Purpose**: Load all orders for a customer
+
+**Query Logic**:
+```csharp
+Query.Where(o => o.BuyerId == buyerId)
+     .Include(o => o.OrderItems)
+     .ThenInclude(i => i.ItemOrdered)
+```
+
+**Usage**: Order history display
+
+#### **CatalogItemsSpecification**
+**Location**: `/src/ApplicationCore/Specifications/CatalogItemsSpecification.cs`
+
+**Purpose**: Load specific catalog items by IDs
+
+**Query Logic**:
+```csharp
+Query.Where(c => ids.Contains(c.Id))
+```
+
+**Usage**: When creating orders, loading multiple items at once
+
+### Core Interfaces (Dependency Inversion)
+
+#### **IRepository<T>** and **IReadRepository<T>**
+**Location**: `/src/ApplicationCore/Interfaces/`
+
+**IReadRepository<T>**:
+- `GetByIdAsync(id)` - Single entity by ID
+- `ListAsync(spec)` - List by specification
+- `CountAsync(spec)` - Count by specification
+- `FirstOrDefaultAsync(spec)` - First match or null
+
+**IRepository<T>** (extends IReadRepository):
+- `AddAsync(entity)` - Insert
+- `UpdateAsync(entity)` - Update
+- `DeleteAsync(entity)` - Delete
+- `DeleteRangeAsync(entities)` - Bulk delete
+
+**Pattern**: Repository pattern with specification support
+
+**Implementation**: In Infrastructure project (`EfRepository<T>`)
+
+#### **Service Interfaces**
+
+**IBasketService**, **IOrderService**, **IBasketQueryService**:
+- Define contracts for domain services
+- Allow mocking for tests
+- Enable decorator patterns (e.g., caching)
+
+#### **Supporting Interfaces**
+
+**IUriComposer**:
+- `ComposePicUri(uri)` - Creates full image URLs
+- Implementation in ApplicationCore (no infrastructure dependency)
+
+**IEmailSender**:
+- `SendEmailAsync(email, subject, message)` - Email abstraction
+- Implementation in Infrastructure
+
+**IAppLogger<T>**:
+- Abstraction over logging
+- Implementation in Infrastructure wraps `ILogger<T>`
+
+### Design Patterns in ApplicationCore
+
+#### **1. Aggregate Pattern (DDD)**
+- Basket, Order, and Buyer are aggregate roots
+- Enforce consistency boundaries
+- Child entities (BasketItem, OrderItem) accessed only through root
+
+#### **2. Specification Pattern (DDD)**
+- Encapsulate query logic
+- Reusable across repositories
+- Composable (can combine specifications)
+
+#### **3. Guard Clause Pattern**
+- `Guard.Against.*()` from Ardalis.GuardClauses
+- Validate inputs at domain boundaries
+- Throw specific exceptions
+
+#### **4. Value Object Pattern**
+- Address, OrderItem - no identity, immutable
+- Equality based on properties, not ID
+
+#### **5. Snapshot Pattern**
+- `CatalogItemOrdered` - Captures product state at order time
+- Prevents data inconsistency if product changes later
+
+#### **6. Dependency Inversion Principle**
+- Core defines interfaces
+- Infrastructure implements interfaces
+- Core never references Infrastructure
+
+### Why No Infrastructure Dependencies?
+
+**Testability**: Can test domain logic without database or external services
+
+**Flexibility**: Can swap infrastructure implementations (e.g., different database)
+
+**Clarity**: Business rules are isolated and clearly visible
+
+**Maintainability**: Changes to infrastructure don't affect domain logic
+
+### Example: Creating an Order (Domain Service Orchestration)
+
+```csharp
+// OrderService.CreateOrderAsync
+1. Load basket aggregate (via specification)
+2. Guard: basket must exist
+3. Guard: basket must not be empty
+4. Load catalog items (get current prices)
+5. Create order items with snapshots
+6. Create order aggregate
+7. Persist order via repository
+```
+
+**Domain Logic Enforced**:
+- Can't create order from empty basket
+- Order captures product details at time of order
+- Prices come from catalog, not basket (trust catalog)
+- Shipping address required
+
+This is **pure business logic** with no knowledge of HTTP, databases, or UI.

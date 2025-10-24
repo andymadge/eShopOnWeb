@@ -1,0 +1,92 @@
+```mermaid
+C4Context
+    title System Context Diagram for eShopOnWeb
+
+    Person(customer, "Customer", "End user who browses catalog, manages shopping basket, and places orders")
+    Person(admin, "Administrator", "Staff member who manages product catalog, brands, and categories")
+    Person(apiClient, "API Client", "External system or application consuming the eShopOnWeb API")
+
+    System(eShopSystem, "eShopOnWeb System", "E-commerce platform for browsing products, managing shopping basket, and placing orders. Includes web UI and REST API.")
+
+    SystemDb(sqlServer, "SQL Server Database", "Stores catalog data, user baskets, orders, and identity information")
+    System_Ext(azureKeyVault, "Azure Key Vault", "Stores production secrets and connection strings (production only)")
+    System_Ext(emailService, "Email Service", "Sends transactional emails (order confirmations, etc.)")
+
+    Rel(customer, eShopSystem, "Browses catalog, manages basket, places orders", "HTTPS")
+    Rel(admin, eShopSystem, "Manages catalog items, brands, and types", "HTTPS")
+    Rel(apiClient, eShopSystem, "Retrieves catalog data, manages items", "HTTPS/REST/JSON")
+
+    Rel(eShopSystem, sqlServer, "Reads from and writes to", "SQL Server Protocol / EF Core")
+    Rel(eShopSystem, azureKeyVault, "Retrieves secrets", "HTTPS / Azure SDK")
+    Rel(eShopSystem, emailService, "Sends emails", "SMTP")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+```
+
+## Description
+
+This diagram shows the **eShopOnWeb System** in context of its users and external dependencies.
+
+### Actors
+
+**Customer** - The primary end user who:
+- Browses the product catalog
+- Adds items to shopping basket
+- Places and views orders
+- Manages their account
+
+**Administrator** - Staff member who:
+- Creates, updates, and deletes catalog items
+- Manages brands and categories
+- Uploads product images
+- Monitors system health
+
+**API Client** - External systems or applications that:
+- Programmatically access catalog data
+- Integrate eShopOnWeb products into other systems
+- Automate catalog management
+
+### The System
+
+**eShopOnWeb** is a comprehensive e-commerce platform consisting of:
+- Customer-facing web application (MVC + Razor Pages)
+- Admin dashboard (Blazor WebAssembly)
+- RESTful Public API
+- Dual authentication (Cookie + JWT)
+
+### External Dependencies
+
+**SQL Server Database**
+- Two separate databases: Catalog and Identity
+- Stores products, brands, categories
+- Manages user baskets and orders
+- Handles user authentication data
+
+**Azure Key Vault** (Production only)
+- Securely stores connection strings
+- Manages API keys and secrets
+- Accessed via Managed Identity
+
+**Email Service**
+- Sends order confirmation emails
+- Delivers account-related notifications
+- Currently abstracted via `IEmailSender` interface
+
+### Key Relationships
+
+- All user interactions occur over **HTTPS** for security
+- API clients consume **REST/JSON** endpoints with JWT authentication
+- Database access via **Entity Framework Core** with retry logic
+- Azure Key Vault accessed via **Azure.Identity** with DefaultAzureCredential
+
+### Environment Differences
+
+**Development/Docker**
+- Uses LocalDB or SQL Server in Docker container
+- No Azure Key Vault integration
+- Secrets in appsettings.Development.json
+
+**Production (Azure)**
+- Azure SQL Database with connection resiliency
+- Azure Key Vault for secrets management
+- Managed Identity authentication

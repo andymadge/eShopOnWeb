@@ -1,0 +1,209 @@
+```mermaid
+C4Component
+    title Component Diagram - Web Application
+
+    Container_Boundary(webBoundary, "Web Application - ASP.NET Core MVC + Razor Pages") {
+        Component(controllers, "MVC Controllers", "C# Controllers", "Handles HTTP requests for orders and user management (OrderController, ManageController)")
+        Component(razorPages, "Razor Pages", "C# Page Models", "Page-based routing for catalog, basket, and checkout flows")
+        Component(blazorServer, "Blazor Server Components", "Blazor", "Interactive server-side components embedded in pages")
+
+        Component(mediatorHandlers, "MediatR Handlers", "C# Classes", "CQRS command and query handlers (GetMyOrders, GetOrderDetails)")
+        Component(viewModelServices, "ViewModel Services", "C# Services", "Prepares data for views (BasketViewModelService, CatalogViewModelService, CachedCatalogViewModelService)")
+
+        Component(authMiddleware, "Authentication Middleware", "ASP.NET Core", "Cookie-based authentication and authorization")
+        Component(healthChecks, "Health Check Components", "C# Classes", "Custom health checks (ApiHealthCheck, HomePageHealthCheck)")
+        Component(configServices, "Configuration Extensions", "C# Static Classes", "DI registration (ConfigureCoreServices, ConfigureWebServices)")
+    }
+
+    Container_Boundary(coreBoundary, "ApplicationCore - Domain Layer") {
+        Component(domainServices, "Domain Services", "C# Services", "Business logic (BasketService, OrderService)")
+        Component(specifications, "Specifications", "C# Classes", "DDD query specifications (BasketWithItemsSpec, CustomerOrdersSpec)")
+        Component(entities, "Domain Entities", "C# Classes", "Aggregate roots and entities (Basket, Order, CatalogItem)")
+        Component(interfaces, "Core Interfaces", "C# Interfaces", "Abstractions (IRepository, IBasketService, IOrderService)")
+    }
+
+    Container_Boundary(infraBoundary, "Infrastructure - Data Layer") {
+        Component(efRepository, "EF Repository", "C# Generic Repository", "Generic repository implementation using EF Core")
+        Component(catalogContext, "CatalogContext", "EF DbContext", "Database context for catalog, basket, and order data")
+        Component(identityContext, "Identity DbContext", "EF DbContext", "Database context for user authentication")
+        Component(identityService, "Identity Token Service", "C# Service", "JWT token generation for API authentication")
+    }
+
+    ContainerDb(catalogDb, "Catalog DB", "SQL Server")
+    ContainerDb(identityDb, "Identity DB", "SQL Server")
+
+    Rel(razorPages, mediatorHandlers, "Sends queries", "MediatR")
+    Rel(razorPages, viewModelServices, "Requests view data")
+    Rel(controllers, viewModelServices, "Requests view data")
+
+    Rel(mediatorHandlers, domainServices, "Uses")
+    Rel(mediatorHandlers, specifications, "Creates")
+    Rel(mediatorHandlers, interfaces, "Depends on")
+
+    Rel(viewModelServices, domainServices, "Uses for basket/order logic")
+    Rel(viewModelServices, specifications, "Creates for queries")
+    Rel(viewModelServices, interfaces, "Depends on repository")
+
+    Rel(domainServices, interfaces, "Uses repository interface")
+    Rel(domainServices, entities, "Manipulates domain objects")
+    Rel(specifications, entities, "Queries")
+
+    Rel(interfaces, efRepository, "Implemented by", "DI")
+    Rel(efRepository, catalogContext, "Uses")
+    Rel(efRepository, specifications, "Applies")
+
+    Rel(catalogContext, catalogDb, "Reads/Writes", "EF Core/SQL")
+    Rel(identityContext, identityDb, "Reads/Writes", "EF Core/SQL")
+
+    Rel(authMiddleware, identityContext, "Validates users")
+    Rel(configServices, domainServices, "Registers", "DI")
+    Rel(configServices, efRepository, "Registers", "DI")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+```
+
+## Web Application Components
+
+### Presentation Layer Components
+
+#### **MVC Controllers**
+**Location**: `/src/Web/Controllers/`
+
+- **OrderController** - Displays order history and details
+- **ManageController** - User account management
+- **UserController** - User-specific operations
+- **BaseApiController** - Base for API-style controllers
+
+**Responsibilities**:
+- Handle HTTP requests
+- Return views with models
+- Apply authorization attributes
+- Coordinate with services
+
+#### **Razor Pages**
+**Location**: `/src/Web/Pages/`
+
+- **Index.cshtml** - Home page with catalog listing
+- **Basket/Index.cshtml** - Shopping basket view
+- **Basket/Checkout.cshtml** - Checkout flow
+- **Admin/EditCatalogItem.cshtml** - Catalog item editor
+
+**Responsibilities**:
+- Page-based routing (handler methods)
+- Model binding from forms
+- Server-side rendering
+- Integration with view services
+
+#### **Blazor Server Components**
+**Location**: Embedded in Razor Pages
+
+**Responsibilities**:
+- Interactive UI components
+- Real-time updates via SignalR
+- Server-side rendering with client-side interactivity
+
+### Application Layer Components
+
+#### **MediatR Handlers**
+**Location**: `/src/Web/Features/`
+
+**Examples**:
+- `GetMyOrdersHandler` - Retrieves user's order history
+- `GetOrderDetailsHandler` - Fetches specific order details
+
+**Pattern**: CQRS (Command Query Responsibility Segregation)
+
+**Responsibilities**:
+- Decouple request handling from presentation
+- Execute queries using specifications
+- Return DTOs to presentation layer
+
+#### **ViewModel Services**
+**Location**: `/src/Web/Services/`
+
+**Services**:
+- **BasketViewModelService** - Prepares basket for display
+- **CatalogViewModelService** - Catalog queries with filtering
+- **CachedCatalogViewModelService** - Caching decorator
+- **CatalogItemViewModelService** - Item details for editing
+
+**Responsibilities**:
+- Transform domain models to view models
+- Apply business rules for display
+- Coordinate multiple repositories
+- Implement caching (decorator pattern)
+
+**Example**: `CachedCatalogViewModelService` wraps `CatalogViewModelService` and adds MemoryCache for performance
+
+### Cross-Cutting Components
+
+#### **Authentication Middleware**
+**Configuration**: `/src/Web/Program.cs` lines 47-53
+
+**Features**:
+- Cookie-based authentication
+- HTTP-only, secure cookies
+- SameSite=Lax for CSRF protection
+- ASP.NET Core Identity integration
+
+#### **Health Check Components**
+**Location**: `/src/Web/HealthChecks/`
+
+- **ApiHealthCheck** - Verifies API availability
+- **HomePageHealthCheck** - Verifies web app is responsive
+
+**Endpoints**:
+- `/health` - Overall health
+- `/api_health_check` - API-specific
+- `/home_page_health_check` - Web-specific
+
+#### **Configuration Extensions**
+**Location**: `/src/Web/Configuration/`
+
+- **ConfigureCoreServices** - Domain service registration
+- **ConfigureWebServices** - Web-specific services
+- **ConfigureCookieSettings** - Cookie policy setup
+- **RevokeAuthenticationEvents** - Logout handling
+
+**Purpose**: Organize dependency injection configuration
+
+### Data Flow Example: Display User Orders
+
+1. User navigates to orders page
+2. **Razor Page** (`MyOrders.cshtml.cs`) sends query
+3. **MediatR** dispatches to **GetMyOrdersHandler**
+4. **Handler** creates **CustomerOrdersSpecification**
+5. **Handler** calls **IRepository<Order>** with specification
+6. **EF Repository** applies specification to **CatalogContext**
+7. **DbContext** queries **SQL Server**
+8. **Handler** returns order DTOs
+9. **Razor Page** renders orders view
+
+### Caching Strategy
+
+**Pattern**: Decorator Pattern
+
+```
+CachedCatalogViewModelService
+    ├── MemoryCache
+    └── CatalogViewModelService (decorated)
+            └── IRepository<CatalogItem>
+```
+
+**Cache Keys**:
+- Catalog list by brand/type/page
+- TTL: Configurable
+
+**Benefits**:
+- Reduced database queries
+- Faster page loads
+- Transparent to consumers
+
+### Security Layers
+
+1. **HTTPS Redirection** - All traffic redirected to HTTPS
+2. **Cookie Security** - HTTP-only, secure, SameSite
+3. **Authentication** - ASP.NET Core Identity
+4. **Authorization** - Attribute-based on controllers/pages
+5. **CSRF Protection** - Anti-forgery tokens on forms
+6. **Input Validation** - Model validation + Guard clauses
